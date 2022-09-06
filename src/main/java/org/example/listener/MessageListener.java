@@ -1,17 +1,24 @@
-package org.example;
+package org.example.listener;
 
 import com.fazecast.jSerialComm.SerialPort;
 import com.fazecast.jSerialComm.SerialPortEvent;
 import com.fazecast.jSerialComm.SerialPortMessageListener;
+import org.example.service.Service;
 
 import java.time.Instant;
+import java.util.function.Consumer;
+import java.util.logging.Logger;
 
-/**
- * @author Kazes
- */
 public class MessageListener implements SerialPortMessageListener
 {
-	private Instant lastDataReceivedAt = Instant.now();
+	private final Logger log = Logger.getLogger(Service.class.getName());
+	private Instant lastDataReceivedAt;
+	private final Consumer<String[]> dataProcessor;
+
+	public MessageListener(Consumer<String[]> dataProcessor) {
+		this.dataProcessor = dataProcessor;
+		this.lastDataReceivedAt = Instant.now();
+	}
 
 	public synchronized void setLastDataReceivedAt(Instant lastDataReceivedAt) {
 		this.lastDataReceivedAt = lastDataReceivedAt;
@@ -34,10 +41,7 @@ public class MessageListener implements SerialPortMessageListener
 	{
 		setLastDataReceivedAt(Instant.now());
 		String delimitedMessage = new String(event.getReceivedData());
-		System.out.println("Received the following delimited message: " + delimitedMessage);
-		String[] data = delimitedMessage.split(";");
-		for (var i = 0; i < data.length; i++) {
-			ServiceLauncher.writeToRegistry(ServiceLauncher.REG_KEYS.get(i), data[i]);
-		}
+		log.fine("Received the following delimited message: " + delimitedMessage);
+		dataProcessor.accept(delimitedMessage.split(";"));
 	}
 }
