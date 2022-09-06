@@ -3,7 +3,6 @@ package org.example.listener;
 import com.fazecast.jSerialComm.SerialPort;
 import com.fazecast.jSerialComm.SerialPortEvent;
 import com.fazecast.jSerialComm.SerialPortMessageListener;
-import org.example.service.Service;
 
 import java.time.Instant;
 import java.util.function.Consumer;
@@ -11,7 +10,7 @@ import java.util.logging.Logger;
 
 public class MessageListener implements SerialPortMessageListener
 {
-	private final Logger log = Logger.getLogger(Service.class.getName());
+	private final Logger log = Logger.getLogger(MessageListener.class.getName());
 	private Instant lastDataReceivedAt;
 	private final Consumer<String[]> dataProcessor;
 

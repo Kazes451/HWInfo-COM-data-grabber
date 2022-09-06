@@ -8,14 +8,17 @@ import org.example.model.Sensor;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 
 public class Service {
 	private final Logger log = Logger.getLogger(Service.class.getName());
-	private final SerialPort comPort;
+	private SerialPort comPort;
 	private final MessageListener listener;
 	private final String comPortName;
 	private final PropertyService propertyService;
+
+	private final AtomicBoolean markedToStop = new AtomicBoolean(false);
 
 	public Service() {
 		this.propertyService = new PropertyService();
@@ -28,13 +31,14 @@ public class Service {
 		createRegistryStructure();
 		initialize();
 		int timeout = propertyService.getIntValue("service.read.timeout");
-		while (comPort.isOpen()) {
+		while (!markedToStop.get()) {
 			synchronized(this) {
 				try {
 					this.wait(timeout);
 					Duration lastDataReceived = Duration.between(listener.getLastDataReceivedAt(), Instant.now());
 					if (lastDataReceived.toMillis() > timeout) {
 						log.severe("No data received from port " + comPortName + " for " + lastDataReceived.toSeconds() + " seconds.");
+						reopenPort();
 					}
 				} catch(InterruptedException ie){
 					terminate();
@@ -44,8 +48,19 @@ public class Service {
 		log.info("Service stopped.");
 	}
 
+	private void reopenPort() {
+		comPort.closePort();
+		try {
+			comPort = SerialPort.getCommPort(comPortName);
+			initialize();
+		} catch (Throwable t) {
+			log.severe("Can't find port " + comPortName);
+		}
+	}
+
 	public void windowsStop() {
 		terminate();
+		markedToStop.set(true);
 		synchronized(this) {
 			this.notify();
 		}
