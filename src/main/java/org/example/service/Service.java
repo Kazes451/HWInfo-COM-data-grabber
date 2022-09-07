@@ -8,37 +8,44 @@ import org.example.model.Sensor;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 
 public class Service {
 	private final Logger log = Logger.getLogger(Service.class.getName());
+
+	public synchronized void setComPort(SerialPort comPort) {
+		this.comPort = comPort;
+	}
+
 	private SerialPort comPort;
 	private final MessageListener listener;
 	private final String comPortName;
 	private final PropertyService propertyService;
 
-	private final AtomicBoolean markedToStop = new AtomicBoolean(false);
+	public synchronized boolean isMarkedToStop() {
+		return markedToStop;
+	}
+
+	private volatile boolean markedToStop;
 
 	public Service() {
 		this.propertyService = new PropertyService();
 		this.comPortName = propertyService.getStringValue("service.listened.port");
-		this.comPort = SerialPort.getCommPort(comPortName);
-		this.listener = new MessageListener(this::processData);
+		this.listener = new MessageListener(this::processData, this::reinitialize);
 	}
 
 	public void windowsStart() {
 		createRegistryStructure();
 		initialize();
 		int timeout = propertyService.getIntValue("service.read.timeout");
-		while (!markedToStop.get()) {
+		while (!isMarkedToStop()) {
 			synchronized(this) {
 				try {
 					this.wait(timeout);
 					Duration lastDataReceived = Duration.between(listener.getLastDataReceivedAt(), Instant.now());
 					if (lastDataReceived.toMillis() > timeout) {
 						log.severe("No data received from port " + comPortName + " for " + lastDataReceived.toSeconds() + " seconds.");
-						reopenPort();
+						reinitialize(comPort);
 					}
 				} catch(InterruptedException ie){
 					terminate();
@@ -46,29 +53,31 @@ public class Service {
 			}
 		}
 		log.info("Service stopped.");
+		System.exit(0);
 	}
 
-	private void reopenPort() {
-		comPort.closePort();
+	private void reinitialize(SerialPort serialPort) {
+		serialPort.closePort();
 		try {
-			comPort = SerialPort.getCommPort(comPortName);
+			propertyService.getSensors().forEach(s -> writeToRegistry(s.registryPath(), ""));
 			initialize();
 		} catch (Throwable t) {
-			log.severe("Can't find port " + comPortName);
+			log.severe("Can't reopen port " + comPortName);
 		}
 	}
 
 	public void windowsStop() {
 		terminate();
-		markedToStop.set(true);
 		synchronized(this) {
+			markedToStop = true;
 			this.notify();
 		}
 	}
 
 	private void initialize() {
 		try {
-			comPort.openPort(propertyService.getIntValue("service.listened.port.safety-sleep-time"));
+			setComPort(SerialPort.getCommPort(comPortName));
+			comPort.openPort();
 			log.info("Trying to open " + comPortName);
 			if (comPort.isOpen()) {
 				log.info("Listening port " + comPortName);
@@ -82,10 +91,9 @@ public class Service {
 	}
 
 	private void terminate() {
-		if (comPort.isOpen()) {
+		if (comPort != null) {
 			comPort.closePort();
 			log.info("Port " + comPort.getSystemPortName() + " closed");
-			comPort.removeDataListener();
 		}
 		deleteRegistryStructure();
 	}

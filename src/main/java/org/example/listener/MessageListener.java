@@ -13,9 +13,11 @@ public class MessageListener implements SerialPortMessageListener
 	private final Logger log = Logger.getLogger(MessageListener.class.getName());
 	private Instant lastDataReceivedAt;
 	private final Consumer<String[]> dataProcessor;
+	private final Consumer<SerialPort> disconnectHandler;
 
-	public MessageListener(Consumer<String[]> dataProcessor) {
+	public MessageListener(Consumer<String[]> dataProcessor, Consumer<SerialPort> disconnectHandler) {
 		this.dataProcessor = dataProcessor;
+		this.disconnectHandler = disconnectHandler;
 		this.lastDataReceivedAt = Instant.now();
 	}
 
@@ -27,7 +29,9 @@ public class MessageListener implements SerialPortMessageListener
 		return lastDataReceivedAt;
 	}
 	@Override
-	public int getListeningEvents() { return SerialPort.LISTENING_EVENT_DATA_RECEIVED; }
+	public int getListeningEvents() {
+		return SerialPort.LISTENING_EVENT_DATA_RECEIVED | SerialPort.LISTENING_EVENT_PORT_DISCONNECTED;
+	}
 
 	@Override
 	public byte[] getMessageDelimiter() { return new byte[] { (byte)0x0a}; }
@@ -38,9 +42,15 @@ public class MessageListener implements SerialPortMessageListener
 	@Override
 	public void serialEvent(SerialPortEvent event)
 	{
-		setLastDataReceivedAt(Instant.now());
-		String delimitedMessage = new String(event.getReceivedData());
-		log.fine("Received the following delimited message: " + delimitedMessage);
-		dataProcessor.accept(delimitedMessage.split(";"));
+		if (event.getEventType() == SerialPort.LISTENING_EVENT_PORT_DISCONNECTED) {
+			log.info("Port disconnected.");
+			disconnectHandler.accept(event.getSerialPort());
+		}
+		if (event.getEventType() == SerialPort.LISTENING_EVENT_DATA_RECEIVED) {
+			setLastDataReceivedAt(Instant.now());
+			String delimitedMessage = new String(event.getReceivedData());
+			log.fine("Received the following delimited message: " + delimitedMessage);
+			dataProcessor.accept(delimitedMessage.split(";"));
+		}
 	}
 }
